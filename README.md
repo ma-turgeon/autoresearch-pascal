@@ -1,4 +1,6 @@
-# autoresearch
+# autoresearch-pascal
+
+> **Fork of [karpathy/autoresearch](https://github.com/karpathy/autoresearch) adapted for GTX 1080 Ti (Pascal / sm_61) with PyTorch 2.0.1+cu118.** See [`PASCAL.md`](PASCAL.md) for a full list of changes and baseline results.
 
 ![teaser](progress.png)
 
@@ -20,22 +22,24 @@ If you are new to neural networks, this ["Dummy's Guide"](https://x.com/hooeem/s
 
 ## Quick start
 
-**Requirements:** A single NVIDIA GPU (tested on H100), Python 3.10+, [uv](https://docs.astral.sh/uv/).
+**Requirements:** A single NVIDIA Pascal GPU (tested on GTX 1080 Ti, 11 GB VRAM), CUDA 11.8, Python 3.10+, conda.
 
 ```bash
+# 1. Set up conda environment with PyTorch 2.0.1+cu118
+bash setup_pascal.sh
 
-# 1. Install uv project manager (if you don't already have it)
-curl -LsSf https://astral.sh/uv/install.sh | sh
-
-# 2. Install dependencies
-uv sync
+# 2. Activate the environment
+conda activate autoresearch
 
 # 3. Download data and train tokenizer (one-time, ~2 min)
-uv run prepare.py
+python prepare.py
 
 # 4. Manually run a single training experiment (~5 min)
-uv run train.py
+export CUDA_VISIBLE_DEVICES=2
+python train.py
 ```
+
+**Important:** Use `python`, NOT `uv run`. The `uv run` command will re-sync dependencies and overwrite the compatible PyTorch 2.0.1 install.
 
 If the above commands all work ok, your setup is working and you can go into autonomous research mode.
 
@@ -52,10 +56,14 @@ The `program.md` file is essentially a super lightweight "skill".
 ## Project structure
 
 ```
-prepare.py      — constants, data prep + runtime utilities (do not modify)
-train.py        — model, optimizer, training loop (agent modifies this)
-program.md      — agent instructions
-pyproject.toml  — dependencies
+prepare.py              — constants, data prep + runtime utilities (do not modify)
+train.py                — model, optimizer, training loop (agent modifies this)
+program.md              — agent instructions (includes Pascal constraints)
+setup_pascal.sh         — one-time conda + pip environment setup
+run.sh                  — convenience training wrapper
+PASCAL.md               — fork-specific docs and baseline results
+pascal_improvements.md  — improvement roadmap
+pyproject.toml          — project metadata
 ```
 
 ## Design choices
@@ -82,10 +90,17 @@ I think these would be the reasonable hyperparameters to play with. Ask your fav
 
 ## Notable forks
 
+See also the other community forks of the upstream project:
+
 - [miolini/autoresearch-macos](https://github.com/miolini/autoresearch-macos) (MacOS)
 - [trevin-creator/autoresearch-mlx](https://github.com/trevin-creator/autoresearch-mlx) (MacOS)
 - [jsegov/autoresearch-win-rtx](https://github.com/jsegov/autoresearch-win-rtx) (Windows)
 - [andyluo7/autoresearch](https://github.com/andyluo7/autoresearch) (AMD)
+
+## Upstream
+
+- [karpathy/autoresearch](https://github.com/karpathy/autoresearch) — original project
+- [karpathy/nanochat](https://github.com/karpathy/nanochat) — parent training codebase
 
 ## License
 
