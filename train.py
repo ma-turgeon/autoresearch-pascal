@@ -17,36 +17,19 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-# from kernels import get_kernel
-# cap = torch.cuda.get_device_capability()
-# varunneal's FA3 is Hopper only, use kernels-community on non-Hopper GPUs
-# repo = "varunneal/flash-attention-3" if cap == (9, 0) else "kernels-community/flash-attn3"
-# fa3 = get_kernel(repo).flash_attn_interface
-
 def sdpa_attn_func(q, k, v, causal=True, window_size=(-1, -1)):
     """Drop-in replacement for fa3.flash_attn_func using PyTorch SDPA.
     Input shapes: (B, T, H, D) — FA3 convention.
+    WINDOW_PATTERN="L" means window_size is always ignored (full context).
     """
-    # SDPA expects (B, H, T, D)
-    q = q.transpose(1, 2)
-    k = k.transpose(1, 2)
-    v = v.transpose(1, 2)
-    # Handle GQA: repeat k,v heads to match q heads
+    # (B, T, H, D) -> (B, H, T, D)
+    q, k, v = q.transpose(1, 2), k.transpose(1, 2), v.transpose(1, 2)
+    # GQA head expansion
     if k.size(1) != q.size(1):
         reps = q.size(1) // k.size(1)
         k = k.repeat_interleave(reps, dim=1)
         v = v.repeat_interleave(reps, dim=1)
-    # Build attention mask for sliding window + causal
-    T = q.size(2)
-    if window_size != (-1, -1) and T > 1:
-        row = torch.arange(T, device=q.device).unsqueeze(1)
-        col = torch.arange(T, device=q.device).unsqueeze(0)
-        mask = (row >= col) & (row - col <= window_size[0])
-        mask = mask.to(q.dtype).masked_fill(~mask, float('-inf')).masked_fill(mask, 0.0)
-        y = F.scaled_dot_product_attention(q, k, v, attn_mask=mask)
-    else:
-        y = F.scaled_dot_product_attention(q, k, v, is_causal=causal)
-    # Back to (B, T, H, D)
+    y = F.scaled_dot_product_attention(q, k, v, is_causal=causal)
     return y.transpose(1, 2)
 
 from prepare import MAX_SEQ_LEN, TIME_BUDGET, Tokenizer, make_dataloader, evaluate_bpb
@@ -494,7 +477,7 @@ torch.cuda.manual_seed(42)
 torch.set_float32_matmul_precision("high")
 device = torch.device("cuda")
 autocast_ctx = torch.amp.autocast(device_type="cuda", dtype=torch.float32)
-H100_BF16_PEAK_FLOPS = 989.5e12
+GPU_PEAK_FLOPS = 11.34e12  # GTX 1080 Ti FP32 peak (Pascal has no real FP16 tensor cores)
 
 tokenizer = Tokenizer.from_directory()
 vocab_size = tokenizer.get_vocab_size()
@@ -618,7 +601,7 @@ while True:
     debiased_smooth_loss = smooth_train_loss / (1 - ema_beta**(step + 1))
     pct_done = 100 * progress
     tok_per_sec = int(TOTAL_BATCH_SIZE / dt)
-    mfu = 100 * num_flops_per_token * TOTAL_BATCH_SIZE / dt / H100_BF16_PEAK_FLOPS
+    mfu = 100 * num_flops_per_token * TOTAL_BATCH_SIZE / dt / GPU_PEAK_FLOPS
     remaining = max(0, TIME_BUDGET - total_training_time)
 
     print(f"\rstep {step:05d} ({pct_done:.1f}%) | loss: {debiased_smooth_loss:.6f} | lrm: {lrm:.2f} | dt: {dt*1000:.0f}ms | tok/sec: {tok_per_sec:,} | mfu: {mfu:.1f}% | epoch: {epoch} | remaining: {remaining:.0f}s    ", end="", flush=True)
@@ -649,7 +632,7 @@ with autocast_ctx:
 # Final summary
 t_end = time.time()
 startup_time = t_start_training - t_start
-steady_state_mfu = 100 * num_flops_per_token * TOTAL_BATCH_SIZE * (step - 10) / total_training_time / H100_BF16_PEAK_FLOPS if total_training_time > 0 else 0
+steady_state_mfu = 100 * num_flops_per_token * TOTAL_BATCH_SIZE * (step - 10) / total_training_time / GPU_PEAK_FLOPS if total_training_time > 0 else 0
 peak_vram_mb = torch.cuda.max_memory_allocated() / 1024 / 1024
 
 print("---")
